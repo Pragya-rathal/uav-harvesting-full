@@ -1,0 +1,451 @@
+try:
+    import gymnasium as gym
+    from gymnasium import spaces
+except ImportError:  # pragma: no cover - fallback for gym-only installs
+    import gym
+    from gym import spaces
+import globe
+import numpy as np
+import random as rd
+import time
+import math as mt
+import sys
+import copy
+from mpl_toolkits.mplot3d import Axes3D
+import os
+import matplotlib
+import random
+
+EPS = 1e-8
+
+class FooEnv(gym.Env):
+    metadata = {"render_modes": ["human"], "render_fps": 1}
+    def __init__(self, LoadData=True, Train=False, multiUT=True, Trajectory_mode='Kmeans', MaxStep=41, RicianK=5.0, trajectory_mode=None, observation_mode='legacy', reward_mode='legacy', csi_mode='perfect', sigma_csi=0.05, flight_lambda=1e-3, max_step_xy=10.0, max_step_z=4.0):
+        globe._init()
+        #the initial location of UAV-RIS
+        globe.set_value('L_U', [0, 0, 20]) #[x, y, z]
+        #the location of AP/BS
+        globe.set_value('L_AP', [0, 0, 10])
+        #8 antennas for AP
+        globe.set_value('BS_Z', 8)
+        #16 reflective elements for RIS
+        globe.set_value('RIS_L', 16)
+
+        #CSI parameters
+        globe.set_value('BW', 2 * mt.pow(10, 7)) #The bandwidth is 20 MHz
+        # Noise power spectrum density is -174dBm/Hz;
+        globe.set_value('N_0', mt.pow(10, ((-174 / 3) / 10)))
+        globe.set_value('Xi', mt.pow(10, (3/10))) #the path loss at the reference distance D0 = 1m, 3dB;
+        # urban env. from [Efficient 3-D Placement of an Aerial Base Station in Next Generation Cellular Networks] 
+        #and [Joint Trajectory-Task-Cache Optimization with Phase-Shift Design of RIS-Assisted UAV for MEC]
+        globe.set_value('a', 9.61)
+        globe.set_value('b', 0.16)
+        globe.set_value('eta_los', 1) 
+        globe.set_value('eta_nlos', 20)
+
+        # σ2 = -102dBm
+        globe.set_value('AWGN', mt.pow(10, (-102/10)))
+        # number of RIS antenna
+        globe.set_value('N_ris', 100)
+        #energy harvesting efficiency eta=0.7
+        globe.set_value('eta', 0.7) 
+        #path-loss exponent is α=3
+        globe.set_value('alpha', 3)
+        # additional attenuation factor φ is 20 dB
+        globe.set_value('varphi', mt.pow(10, (20/10)))
+        # max transmit Power from BS is 500W
+        globe.set_value('P_max', 5 * mt.pow(10, 5))#mt.pow(10, 43/10)
+        #number of user 
+        globe.set_value('N_u', 3)
+        # carrier frequency is 750 MHz
+        globe.set_value('fc', 750 * mt.pow(10, 6))
+        # speed of light
+        globe.set_value('c', 3 * mt.pow(10, 8))
+        #minimal requirement of sinr 12db
+        globe.set_value('gamma_min', mt.pow(10, (12/10)))
+        # the transmission power from the AP for a single user
+        globe.set_value('power_i', 0.5 * mt.pow(10, 3))
+        # the number of total time slots
+        globe.set_value('t', int(MaxStep))
+        #current time slot
+        globe.set_value('step', 0)
+
+        globe.set_value('kappa', mt.pow(10, (-30/10)))
+        globe.set_value('hat_alpha', 2)
+        globe.set_value('successCon', 0)
+        # Rician K controls LoS/NLoS strength: weak (0.5), medium (1), strong (5).
+        globe.set_value('rician_k', float(RicianK))
+
+        if LoadData == True:
+            if Train == True:
+                if multiUT == True:
+                    UT_0 = np.loadtxt("../CreateData/Train_Trajectory_UT_0.csv", delimiter=",")
+                    UT_1 = np.loadtxt("../CreateData/Train_Trajectory_UT_1.csv", delimiter=",")
+                    UT_2 = np.loadtxt("../CreateData/Train_Trajectory_UT_2.csv", delimiter=",")
+
+                    globe.set_value('UT_0', UT_0)
+                    globe.set_value('UT_1', UT_1)
+                    globe.set_value('UT_2', UT_2)
+
+                    if Trajectory_mode == 'Fermat':
+                        UAV_Trajectory = np.loadtxt("../CreateData/Fermat_Train_Trajectory_3.csv", delimiter=",")
+                    else:
+                        UAV_Trajectory = np.loadtxt("../CreateData/Kmeans_Train_Trajectory_3.csv", delimiter=",")
+
+                    globe.set_value('UAV_Trajectory', UAV_Trajectory)
+
+                else:
+                    UT_0 = np.loadtxt("../CreateData/Train_Trajectory_UT_0.csv", delimiter=",")
+                    globe.set_value('UT_0', UT_0)
+
+                    if Trajectory_mode == 'Fermat':
+                        UAV_Trajectory = np.loadtxt("../CreateData/Fermat_Train_Trajectory_1.csv", delimiter=",")
+                    else:
+                        UAV_Trajectory = np.loadtxt("../CreateData/Kmeans_Train_Trajectory_1.csv", delimiter=",")
+
+                    globe.set_value('UAV_Trajectory', UAV_Trajectory)
+
+            else:
+                if multiUT == True:
+                    UT_0 = np.loadtxt("../CreateData/Test_Trajectory_UT_0.csv", delimiter=",")
+                    UT_1 = np.loadtxt("../CreateData/Test_Trajectory_UT_1.csv", delimiter=",")
+                    UT_2 = np.loadtxt("../CreateData/Test_Trajectory_UT_2.csv", delimiter=",")
+
+                    globe.set_value('UT_0', UT_0)
+                    globe.set_value('UT_1', UT_1)
+                    globe.set_value('UT_2', UT_2)
+
+                    if Trajectory_mode == 'Fermat':
+                        UAV_Trajectory = np.loadtxt("../CreateData/Fermat_Test_Trajectory_3.csv", delimiter=",")
+                    else:
+                        UAV_Trajectory = np.loadtxt("../CreateData/Kmeans_Test_Trajectory_3.csv", delimiter=",")
+
+                    globe.set_value('UAV_Trajectory', UAV_Trajectory)
+
+                else:
+                    UT_0 = np.loadtxt("../CreateData/Test_Trajectory_UT_0.csv", delimiter=",")
+                    globe.set_value('UT_0', UT_0)
+
+                    if Trajectory_mode == 'Fermat':
+                        UAV_Trajectory = np.loadtxt("../CreateData/Fermat_Test_Trajectory_1.csv", delimiter=",")
+                    else:
+                        UAV_Trajectory = np.loadtxt("../CreateData/Kmeans_Test_Trajectory_1.csv", delimiter=",")
+
+                    globe.set_value('UAV_Trajectory', UAV_Trajectory)        
+        
+        self.trajectory_mode = os.getenv("UAV_TRAJECTORY_MODE", trajectory_mode or "fixed").strip().lower()
+        self.observation_mode = os.getenv("UAV_OBSERVATION_MODE", observation_mode or "legacy").strip().lower()
+        self.reward_mode = os.getenv("UAV_REWARD_MODE", reward_mode or "legacy").strip().lower()
+        self.csi_mode = os.getenv("UAV_CSI_MODE", csi_mode or "perfect").strip().lower()
+        self.sigma_csi = float(os.getenv("UAV_CSI_SIGMA", sigma_csi))
+        self.flight_lambda = float(os.getenv("UAV_FLIGHT_LAMBDA", flight_lambda))
+        self.max_step_xy = float(max_step_xy)
+        self.max_step_z = float(max_step_z)
+        self._uav_bounds = np.array([[-500.0, 500.0], [-500.0, 500.0], [20.0, 120.0]], dtype=np.float32)
+        self._legacy_action_dim = 34
+        self._legacy_obs_dim = 2
+        self._default_uav_position = np.array(globe.get_value('L_U'), dtype=np.float32)
+        self.uav_position = self._default_uav_position.copy()
+        self._user_keys = [f"UT_{i}" for i in range(10) if globe.get_value(f"UT_{i}") is not None]
+        if not self._user_keys:
+            self._user_keys = ['UT_0']
+        self._enhanced_obs_dim = 10 + 4 * len(self._user_keys)
+        learned = self.trajectory_mode == "learned"
+        self.action_space = spaces.Box(0, 1, shape=(34 + (3 if learned else 0), ), dtype=np.float32)
+        if self.observation_mode == "enhanced":
+            self.observation_space = spaces.Box(-1e6, 1e6, shape=(self._enhanced_obs_dim, ), dtype=np.float32)
+        else:
+            self.observation_space = spaces.Box(0, 20, shape=(2, ), dtype=np.float32)
+        self._max_episode_steps = int(MaxStep)
+        self.Train = Train
+
+    def step(self, action):
+        t = globe.get_value('t')
+        action = np.asarray(action, dtype=np.float32).reshape(-1)
+        step_idx = globe.get_value('step')
+        learned = self.trajectory_mode == "learned" and action.size >= self._legacy_action_dim + 3
+        if learned:
+            action_main = action[3:]
+            delta = (action[:3] - 0.5) * np.array([self.max_step_xy, self.max_step_xy, self.max_step_z], dtype=np.float32)
+            self.uav_position = np.clip(self.uav_position + delta, self._uav_bounds[:, 0], self._uav_bounds[:, 1]).astype(np.float32)
+            try:
+                trajectory = np.asarray(globe.get_value('UAV_Trajectory'), dtype=np.float32).copy()
+                traj_idx = int(min(step_idx + 1, len(trajectory) - 1))
+                trajectory[traj_idx] = self.uav_position
+                globe.set_value('UAV_Trajectory', trajectory)
+            except Exception:
+                pass
+            globe.set_value('L_U', self.uav_position.tolist())
+        else:
+            action_main = action
+            delta = np.zeros(3, dtype=np.float32)
+        tau = action_main[0]
+        power_1 = mt.pow(10, ((action_main[1]-1)*30/10+3))
+        Theta_R = action_main[2: 2 + globe.get_value('RIS_L')] * 2 * np.pi
+        Omega_R = np.abs(np.around(action_main[2 + globe.get_value('RIS_L'):]))
+        reward_args = (tau, power_1, Theta_R, Omega_R)
+        reward, radio_state, received_energy = self.env_state(step_idx, *reward_args)
+        terminated = step_idx == t - 1
+        truncated = False
+        globe.set_value('step', int(step_idx + 1))
+
+        if learned and self.reward_mode == "flight_aware":
+            reward -= self.flight_lambda * self._flight_energy(delta)
+        elif self.reward_mode == "flight_aware":
+            try:
+                trajectory = np.asarray(globe.get_value('UAV_Trajectory'), dtype=np.float32)
+                cur_idx = int(min(step_idx, len(trajectory) - 1))
+                prev_idx = max(cur_idx - 1, 0)
+                reward -= self.flight_lambda * self._flight_energy(np.asarray(trajectory[cur_idx], dtype=np.float32) - np.asarray(trajectory[prev_idx], dtype=np.float32))
+            except Exception:
+                pass
+
+        invalid_action = (np.array(action) >= 0).all() == False or (np.array(action) <= 1).all() == False
+        if invalid_action:
+            reward = 0.0
+
+        obs = self._build_observation(step_idx, radio_state, reward, received_energy)
+
+        denom = max(float(received_energy), EPS)
+        info = {}
+        if not self.Train:
+            info = {"reward": float(reward), "received_energy": float(received_energy), "flight_energy": float(self._flight_energy(delta)), "trajectory_mode": self.trajectory_mode, "observation_mode": self.observation_mode, "reward_mode": self.reward_mode, "csi_mode": self.csi_mode}
+        return obs, reward / denom, terminated, truncated, info
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        globe.set_value('step', 0)
+        globe.set_value('successCon', 0)
+
+        step_idx = globe.get_value('step')
+        if self.trajectory_mode == "learned":
+            try:
+                trajectory = np.asarray(globe.get_value('UAV_Trajectory'), dtype=np.float32)
+                self.uav_position = np.asarray(trajectory[0], dtype=np.float32).copy()
+            except Exception:
+                self.uav_position = self._default_uav_position.copy()
+            globe.set_value('L_U', self.uav_position.tolist())
+            L_U = self.uav_position
+        else:
+            L_U = globe.get_value('UAV_Trajectory')[step_idx]
+
+        L_AP = globe.get_value('L_AP')
+
+        UT_0 = globe.get_value('UT_0')[step_idx]
+
+        distance_AP_RIS = mt.sqrt(mt.pow((L_U[0] - L_AP[0]), 2) + mt.pow((L_U[1] - L_AP[1]), 2) + mt.pow((L_U[2] - L_AP[2]), 2))
+        distance_RIS_UT_0 = mt.sqrt(mt.pow((L_U[0] - UT_0[0]), 2) + mt.pow((L_U[1] - UT_0[1]), 2) + mt.pow((L_U[2] - UT_0[2]), 2))
+
+        radio_state = np.array([distance_AP_RIS, distance_RIS_UT_0], dtype=np.float32)
+
+        obs = self._build_observation(step_idx, radio_state, 0.0, 0.0)
+        return obs, {}
+    def _flight_energy(self, delta):
+        delta = np.asarray(delta, dtype=np.float32).reshape(-1)
+        if delta.size < 3:
+            delta = np.pad(delta, (0, 3 - delta.size), constant_values=0.0)
+        dx, dy, dz = float(delta[0]), float(delta[1]), float(delta[2])
+        alpha_xy = 1.0
+        alpha_z = 1.5
+        return alpha_xy * (dx * dx + dy * dy) + alpha_z * (dz * dz)
+
+    def _csi_perturb(self, link):
+        link = np.asarray(link)
+        if self.csi_mode != "imperfect":
+            return link
+        scale = max(float(self.sigma_csi), EPS)
+        if np.iscomplexobj(link):
+            noise = (np.random.normal(size=link.shape) + 1j * np.random.normal(size=link.shape)) * (scale / np.sqrt(2.0))
+            return (link + noise).astype(np.complex128)
+        noise = np.random.normal(scale=scale, size=link.shape)
+        return (link + noise).astype(link.dtype if hasattr(link, "dtype") else np.float32)
+
+    def _build_observation(self, step_idx, radio_state, reward, received_energy):
+        radio_state = np.asarray(radio_state, dtype=np.float32).reshape(-1)
+        if radio_state.size < 2:
+            radio_state = np.pad(radio_state, (0, 2 - radio_state.size), constant_values=0.0)
+        reward = float(reward)
+        received_energy = float(received_energy)
+        step_den = max(float(globe.get_value("t") - 1), 1.0)
+        lu_val = globe.get_value("L_U")
+        if lu_val is None:
+            lu_val = self.uav_position
+        L_U = np.asarray(lu_val, dtype=np.float32).reshape(-1)
+        if L_U.size < 3:
+            L_U = np.pad(L_U, (0, 3 - L_U.size), constant_values=0.0)
+
+        if self.observation_mode == "enhanced":
+            base = [
+                np.array([float(step_idx) / step_den], dtype=np.float32),
+                L_U[:3].astype(np.float32),
+                radio_state[:2].astype(np.float32),
+                np.array(
+                    [
+                        reward,
+                        received_energy,
+                        1.0 if self.trajectory_mode == "learned" else 0.0,
+                        1.0 if self.csi_mode == "imperfect" else 0.0,
+                    ],
+                    dtype=np.float32,
+                ),
+            ]
+            extras = []
+            for key in self._user_keys:
+                user = globe.get_value(key)
+                if user is None:
+                    user = np.zeros(3, dtype=np.float32)
+                user = np.asarray(user, dtype=np.float32).reshape(-1)
+                if user.size < 3:
+                    user = np.pad(user, (0, 3 - user.size), constant_values=0.0)
+                dist = float(np.linalg.norm(L_U[:3] - user[:3]))
+                extras.append(np.array([user[0], user[1], user[2], dist], dtype=np.float32))
+            obs = np.concatenate(base + extras).astype(np.float32)
+            if obs.size < self._enhanced_obs_dim:
+                obs = np.pad(obs, (0, self._enhanced_obs_dim - obs.size), constant_values=0.0)
+            return obs[: self._enhanced_obs_dim].astype(np.float32)
+
+        return np.array([radio_state[0], radio_state[1]], dtype=np.float32)
+
+    def render(self, mode='human', close=False):
+        pass
+
+    def pl_BR(self, L_U, L_AP):
+        a = globe.get_value('a')
+        b = globe.get_value('b')
+        varphi = globe.get_value('varphi')
+        alpha = globe.get_value('alpha')
+
+        theta = (180 / mt.pi) * mt.asin( ( (L_U[2] - L_AP[2]) / mt.sqrt(mt.pow(L_U[0], 2) + mt.pow(L_U[1], 2) + mt.pow((L_U[2] - L_AP[2]), 2))) )
+        p_los = 1 + a * mt.exp(a * b - b * theta )
+        p_los = 1 / p_los
+
+        p_nlos = 1 - p_los
+        # channel power gain (BS-RIS) with the los and nlos
+        g_BR = (p_los + p_nlos * varphi) * mt.pow(mt.sqrt(mt.pow(L_U[0], 2) + mt.pow(L_U[1], 2) + mt.pow((L_U[2] - L_AP[2]), 2)), (0-alpha))
+        
+        return g_BR
+
+    def SmallFading_G(self, BS_Z, RIS_L):
+        rician_k = globe.get_value('rician_k')
+        los = np.ones((BS_Z, RIS_L), dtype=np.complex128)
+        nlos = 1/np.sqrt(2)*(np.random.normal(loc=0, scale=1, size=(BS_Z, RIS_L)) + 1j*np.random.normal(loc=0, scale=1, size=(BS_Z, RIS_L)))
+        return np.sqrt(rician_k/(1 + rician_k)) * los + np.sqrt(1/(1 + rician_k)) * nlos
+
+    def EH(self, tau, power_1, Theta_R, L_U, L_AP, Omega_R):
+        eta = globe.get_value('eta')
+        #8 antennas for AP
+        BS_Z = globe.get_value('BS_Z')
+        #16 reflective elements for RIS
+        RIS_L = globe.get_value('RIS_L')
+
+        g_BR = self.pl_BR(L_U, L_AP)
+        # 8 antennas for AP, 16 reflective elements for RIS
+        G = np.ones((BS_Z, RIS_L))
+        SmallFading_G = self.SmallFading_G(BS_Z, RIS_L)
+        x = G * g_BR * SmallFading_G
+
+        power_total = power_1
+        g_2norm = np.zeros((BS_Z, RIS_L))
+
+        for i in range(0, BS_Z):
+            for j in range(0, RIS_L):
+                g_ij = [x[i][j]]
+                g_2norm[i][j] = np.linalg.norm(g_ij, ord=2, keepdims=True)
+
+        received_power = np.sum(g_2norm * power_total)
+
+        g_hat_2norm = np.zeros((BS_Z, RIS_L))
+        for i in range(0, BS_Z):
+            for j in range(0, RIS_L):
+                g_ij = [x[i][j]]
+                g_hat_2norm[i][j] = np.linalg.norm(g_ij, ord=2, keepdims=True) * (1 - Omega_R[j])
+
+        received_power_hat = np.sum(g_hat_2norm * power_total)
+
+        E_t = tau * eta * received_power + (1 - tau) * eta * received_power_hat
+
+        return E_t, received_power
+
+    def Rayleigh_RU(self, L_U, UT, BS_Z, RIS_L):
+        Rayleigh_RU = 1/np.sqrt(2)*(np.random.normal(loc=0, scale=1, size=(RIS_L, 1)) + 1j*np.random.normal(loc=0, scale=1, size=(RIS_L, 1)))
+        return Rayleigh_RU
+    
+    def Channel_RU(self, L_U, UT, BS_Z, RIS_L):
+        h_ru = np.ones((RIS_L, 1))
+        kappa = globe.get_value('kappa')
+        hat_alpha = globe.get_value('hat_alpha')
+        rician_k = globe.get_value('rician_k')
+        distance = mt.sqrt(mt.pow((L_U[0] - UT[0]), 2) + mt.pow((L_U[1] - UT[1]), 2) + mt.pow((L_U[2] - UT[2]), 2))
+        distance = max(float(distance), EPS)
+        PL = np.sqrt(kappa * mt.pow((distance/1), -hat_alpha))
+
+        h_ru = h_ru * np.sqrt(rician_k/(1+rician_k)) * PL + np.sqrt(1/(1+rician_k)) * PL * self.Rayleigh_RU(L_U, UT, BS_Z, RIS_L)
+
+        return h_ru
+
+    def capacity (self, tau, power_1, Theta_R, L_U, L_AP, UT_0, Omega_R):
+
+        power_i = globe.get_value('power_i')
+        AWGN = globe.get_value('AWGN')
+
+        BW = globe.get_value('BW')
+        # 8 antennas for AP
+        BS_Z = globe.get_value('BS_Z')
+        # 16 reflective elements for RIS
+        RIS_L = globe.get_value('RIS_L')
+
+        g_BR = self.pl_BR(L_U, L_AP)
+        SmallFading_G = self.SmallFading_G(BS_Z, RIS_L)
+        G = np.ones((BS_Z, RIS_L)) * g_BR * SmallFading_G
+
+        coefficients = np.diag(np.exp(1j*Theta_R))
+
+        for i in range(RIS_L):
+            coefficients[i][i] = coefficients[i][i] * Omega_R[i]
+
+        # received signal for UT 1
+        h_ru = self.Channel_RU(L_U, UT_0, BS_Z, RIS_L)    
+        UT_link_1 = self._csi_perturb(1*np.linalg.multi_dot([G, coefficients, h_ru]))
+        signal_UT_1 = np.sum(np.abs(UT_link_1 * np.conjugate(UT_link_1))) * power_1
+
+        SINR_1 = 10 * mt.log(((signal_UT_1 + 1e-14)/(AWGN)), 10)
+
+        if SINR_1 > 0:
+            Aver_Throughput_1 = BW * mt.log((1 + SINR_1), 2) * (1 - tau)
+        else:
+            Aver_Throughput_1 = 0
+
+        return [Aver_Throughput_1]
+
+    def env_state(self, step, tau, power_1, Theta_R, Omega_R):
+        if step < globe.get_value('t')-1:
+            L_U = globe.get_value('UAV_Trajectory')[step+1]
+            L_AP = globe.get_value('L_AP')
+
+            UT_0 = globe.get_value('UT_0')[step+1]
+        else:
+            L_U = globe.get_value('UAV_Trajectory')[step]
+            L_AP = globe.get_value('L_AP')
+
+            UT_0 = globe.get_value('UT_0')[step]
+
+        reward, received_energy = self.EH(tau, power_1, Theta_R, L_U, L_AP, Omega_R)
+        HarvestEnergy = reward
+        Aver_Throughput = self.capacity (tau, power_1, Theta_R, L_U, L_AP, UT_0, Omega_R)
+
+        for i in range(len(Aver_Throughput)):
+            if Aver_Throughput[i] < 7 * mt.pow(10, 7):
+                reward = 0
+                HarvestEnergy = 0
+
+        distance_AP_RIS = mt.sqrt(mt.pow((L_U[0] - L_AP[0]), 2) + mt.pow((L_U[1] - L_AP[1]), 2) + mt.pow((L_U[2] - L_AP[2]), 2))
+        distance_RIS_UT_0 = mt.sqrt(mt.pow((L_U[0] - UT_0[0]), 2) + mt.pow((L_U[1] - UT_0[1]), 2) + mt.pow((L_U[2] - UT_0[2]), 2))
+
+        radio_state = np.array([distance_AP_RIS, distance_RIS_UT_0])
+
+        return reward, radio_state, received_energy
+
+    def reloadData(filename):
+        with open(filename, encoding = 'utf-8') as f:
+            data = np.loadtxt(f, delimiter = ",")
+            data.astype(int)
+            globe.set_value('DistanceRU', data)

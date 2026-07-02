@@ -1,0 +1,17 @@
+{
+  "td3": {
+    "scenario_root": "/tmp/uav_ris_pub2_bi8wqp7w/UAV-RIS_EnergyHarvesting-main/TD3-SingleUT-Time",
+    "model_path": "/tmp/uav_ris_pub2_bi8wqp7w/UAV-RIS_EnergyHarvesting-main/TD3-SingleUT-Time/td3_SingleUT_Time.zip",
+    "kind": "sb3"
+  },
+  "ddpg": {
+    "scenario_root": "/tmp/uav_ris_pub2_bi8wqp7w/UAV-RIS_EnergyHarvesting-main/DDPG-SingleUT-Time",
+    "model_path": "/tmp/uav_ris_pub2_bi8wqp7w/UAV-RIS_EnergyHarvesting-main/DDPG-SingleUT-Time/ddpg_SingleUT_Time.zip",
+    "kind": "sb3"
+  },
+  "sd3": {
+    "scenario_root": "/tmp/uav_ris_pub2_bi8wqp7w/UAV-RIS_EnergyHarvesting-main/SD3-SingleUT-Time",
+    "model_path": "/tmp/uav_ris_pub2_bi8wqp7w/UAV-RIS_EnergyHarvesting-main/SD3-SingleUT-Time/checkpoints/models/model",
+    "kind": "sd3"
+  }
+}
